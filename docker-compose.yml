@@ -1,0 +1,61 @@
+# Two API instances share Postgres + Redis: demonstrates cross-instance messaging.
+x-api: &api
+  build: ./server
+  restart: on-failure
+  depends_on: [db, redis]
+  environment: &env
+    DATABASE_URL: postgres://utg:utg@db:5432/utg
+    REDIS_URL: redis://redis:6379
+    UPLOAD_DIR: /data/uploads
+    JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+    TURN_SECRET: ${TURN_SECRET:-dev-turn-secret-change-me}
+    TURN_URL: ${TURN_URL:-turn:localhost:3478?transport=udp}
+    SEED_DEV: "1"
+    ADMIN_EMAIL: admin@utg.edu.gm
+    ADMIN_PASSWORD: ${ADMIN_PASSWORD:-ChangeMe123!}
+services:
+  db:
+    image: postgres:16-alpine
+    environment: { POSTGRES_USER: utg, POSTGRES_PASSWORD: utg, POSTGRES_DB: utg }
+    volumes: [pgdata:/var/lib/postgresql/data]
+  redis:
+    image: redis:7-alpine
+  api1:
+    <<: *api
+    environment: { <<: *env, INSTANCE: api1 }
+    ports: ["4000:4000"]
+    volumes: [uploads:/data/uploads]
+  api2:
+    <<: *api
+    environment: { <<: *env, INSTANCE: api2 }
+    ports: ["4001:4000"]
+    volumes: [uploads:/data/uploads]
+  turn:
+    image: coturn/coturn:4.6-alpine
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/turn-entrypoint.sh"]
+    environment:
+      TURN_REALM: ${TURN_REALM:-localhost}
+      TURN_SECRET: ${TURN_SECRET:-dev-turn-secret-change-me}
+      TURN_EXTERNAL_IP: ${TURN_EXTERNAL_IP:-}
+    volumes: [./turn-entrypoint.sh:/turn-entrypoint.sh:ro]
+    ports:
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+      - "49160-49200:49160-49200/udp"
+  web:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    restart: unless-stopped
+    depends_on: [api1]
+    profiles: [tls]
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes: [caddy_data:/data, caddy_config:/config]
+volumes:
+  pgdata: {}
+  uploads: {}
+  caddy_data: {}
+  caddy_config: {}

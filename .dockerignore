@@ -1,0 +1,7 @@
+.git
+.vite
+**/node_modules
+client/dist
+client/test-results
+client/playwright-report
+uploads
